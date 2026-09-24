@@ -16,6 +16,7 @@
 #include <ventanas.h>
 #include "plc.h"
 #include "soporte.h"
+#include <cerrno>
 
 //----------------------------------------------------------------------------
 char copyright[]="(c) Copyright 1996-1997, Rodrigo Alonso - Version 1.7";
@@ -467,6 +468,7 @@ int plc::cargar_programa(char *archivo)
 //   printf("\n Abriendo %s ...",archivo);
    if ((ar = fopen(archivo,"rt")) == NULL)
    {
+     printf("ERROR del Sistema Operativo al abrir [%s]: %s\n", archivo, strerror(errno));
      strcpy(&(mensaj[strlen(mensaj)]),archivo);
      error(mensaj,0);
      return resultado;
@@ -856,7 +858,7 @@ int plc::evento(eventoM *ev)
            if (comando2==100)
            {
              comando3=cd_carg_prog.evento(ev);
-             mayusculas(nprog);
+//             mayusculas(nprog);
              if (comando3==100)
              if (cargar_programa(nprog)==OK)
              {

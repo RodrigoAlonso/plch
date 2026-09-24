@@ -60,15 +60,15 @@ int main(int argc, char *argv[])
 
    if (argc>1 && argc<6)
    {
-     mayusculas(argv[1]);
+     //mayusculas(argv[1]);
      plc1.cargar_programa(argv[1]);
      if (argc>2)
      {
-      mayusculas(argv[2]);
+      //mayusculas(argv[2]);
       if (strcmp(argv[2]+strlen(argv[2])-3,"SDA")==0)
       {
         plc1.cargar_cableado_externo(argv[2]);
-        mayusculas(argv[3]);
+        //mayusculas(argv[3]);
         if (argc>3) plc2.cargar_programa(argv[3]);
         if (argc>4) plc2.cargar_cableado_externo(argv[4]);
       } else
