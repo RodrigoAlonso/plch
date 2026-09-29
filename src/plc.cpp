@@ -29,33 +29,18 @@ cajadialogo cd_copyright(48,134,110);
 //----------------------------------------------------------------------------
 // Implementacion de la clase Link
 //----------------------------------------------------------------------------
-#define AREA_LECTURA     80
-#define AREA_ESCRITURA  240
 void Link::actualizarLink(void)
 {
-  int aux,bux=c.getNumero(),dux,eux;
-  unsigned char cux;
-  plc *p1=(plc *)c.primero();
-  plc *p2;
+  plcsim_t *sims[maxPuntero];
+  unsigned aux,bux=c.getNumero();
+  plc *p=(plc *)c.primero();
 
   for (aux=0; aux<bux; aux++)  // Por cada PLC...
   {
-    if (p1->conectado != 0)  // ...si esta conectado ...
-    for (dux=0; dux<16; dux++) //por cada input del area de link de ese PLC...
-    {                          //(16 es el tama¤o en bytes del Area de Link)
-      cux=0;
-      p2=(plc *)c.primero();//...en funcion de los outputs de los otros PLCs...
-      if (p2->conectado != 0)  // ...si estan conectados ...
-      for (eux=0; eux<bux; eux++)   // ...calculo el nuevo valor...
-      {
-        cux|=p2->IOsimul[AREA_ESCRITURA+dux].actual;
-        p2=(plc *)c.siguiente();
-      }
-      p1->IOsimul[AREA_LECTURA+dux].actual=cux; //...y actualizo el input
-    }
-    c.setActual(p1);
-    p1=(plc *)c.siguiente();
+    sims[aux]=p->sim;
+    if (aux+1<bux) p=(plc *)c.siguiente();
   }
+  plcsim_link_update(sims,bux);
 }
 
 void Link::dibujar(void)  // NOTA: solo dibuja correctamente si hay 2 PLCs
@@ -66,7 +51,7 @@ void Link::dibujar(void)  // NOTA: solo dibuja correctamente si hay 2 PLCs
 
   if (p1!=NULL && p2!=NULL && p1!=p2)
   {
-    if (p1->conectado==0 || p2->conectado==0)
+    if (!plcsim_is_linked(p1->sim) || !plcsim_is_linked(p2->sim))
     {
       c1=c2=c3=BLACK;
     }
@@ -119,99 +104,37 @@ plc::plc(int x, int y, Link *l, unsigned nroI, unsigned nroO)
   nprog[0]='\0';
   cd_carg_prog.insertar(new lineaInput(nprog,40,50,50));
 
+  if ((sim=plcsim_create())==NULL) error("ERROR: No se pudo reservar memoria",1);
   linkable=l;
   linkable->insertar(this);
-  conectado=0;
 
   iniciar();
 }
 
 plc::~plc()
 {
-   for (int aux=0; aux<MaxInput+MaxOutput; aux++)
-     if (Ayuda[aux]!=NULL) free(Ayuda[aux]);
+   plcsim_destroy(sim);
 }
 
 void plc::reset(void)
 {
   int aux;
 
-  for (aux=0; aux<MEMORIA; aux++)
-  {
-    IOsimul[aux].actual=0;
-//    IOsimul[aux].anterior=0;
-  }
-  for (aux=0; aux<TIMERS; aux++)
-  {
-    TCsimul[aux].actual=0;
-//    TCsimul[aux].anterior=0;
-    TCsimul[aux].inicio=0;
-    TCsimul[aux].counter=0;
-  }
-//  for (aux=0; aux<nroInputs; aux++) input[aux]=0;
+  plcsim_reset(sim);
+  for (aux=0; aux<nroInputs; aux++) input[aux]=2;
   for (aux=0; aux<nroOutputs; aux++) output[aux]=2;
 //
   botres=0;
   precond=0;
   precond2=0;
-  AR=ER=CR=0;
   ayudaActual=0;
-  prenderSelectoras();
-  IOsimul[839].actual=ON; // 967: prendido durante el primer scan.
   modo=ver_plc;
 }
 
-void plc::resetSelectoras(void)  // parte del cableado externo
+void plc::resetColores(void)  // parte del cableado externo
 {
   int aux;
 
-  for (aux=0; aux<nroInputs; aux++)
-  {
-    inputBloq[aux]=0;
-    inputSelec[aux]=-1;
-  }
-  numselectoras=0;
-}
-
-void plc::prenderSelectoras(void)  // Pone las selectoras en su posicion
-                                   // por default.
-{
-  for (int aux=0,bux; aux<numselectoras; aux++)
-  {
-    bux=selectoras[aux].actual=selectoras[aux].posic[0];
-    IOsimul[bux].actual=ON; //IOsimul[bux].anterior=ON;
-  }
-}
-
-void plc::resetTemporizadores(void)  // parte del cableado externo
-{
-//  for (int aux=0; aux<Maxtemporizadores; aux++) cabext[aux].inicio=-1;
-  numtemporizadores=0;
-}
-
-void plc::resetTotal(void)
-{
-  int aux;
-
-  nro_instruc=0;
-  for (aux=0; aux<PASOS; aux++)
-  {
-    instruc[aux].tipo=instruc[aux].opcode=0;
-    instruc[aux].operando=0;
-  }
-  for (aux=0; aux<MEMORIA; aux++)
-  {
-//    IO[aux].nombre[0]=IO[aux].nombre[5]='\0';
-    strcpy(IO[aux].nombre,"          ");
-//    strcpy(IO[aux].descrip,"                              ");
-  }
-  for (aux=0; aux<TIMERS; aux++)
-  {
-//    strcpy(TC[aux].descrip,"                              ");
-    TC[aux].nombre[0]='\0';
-    TC[aux].tipo='T';
-    TC[aux].valor=0;
-  }
   for (aux=0; aux<nroOutputs; aux++)   // outputs, colores
   {
     colorOut[aux].cluz=LIGHTRED;
@@ -225,11 +148,23 @@ void plc::resetTotal(void)
     colorIn[aux].cfon=LIGHTGRAY;
     colorIn[aux].ctexpres=WHITE;
     colorIn[aux].ctexdepr=BLACK;
+    inputBloq[aux]=0;
   }
-  tick=0;
+}
+
+void plc::resetTotal(void)
+{
+  int aux;
+
+  nro_instruc=0;
+  for (aux=0; aux<PASOS; aux++)
+  {
+    instruc[aux].tipo=instruc[aux].opcode=0;
+    instruc[aux].operando=0;
+  }
+  resetColores();
+  plcsim_clear_wiring(sim);
   reset();
-  resetTemporizadores();
-  resetSelectoras();
 }
 
 void plc::iniciar(void)
@@ -252,237 +187,97 @@ void plc::iniciar(void)
   m.insertar(new boton("Acerca de PLC   ",300));
   m.insertar(new boton("Salir           ",27));
   archivoCEX[0]='\0';
-  for (int aux=0; aux<MaxInput+MaxOutput; aux++) Ayuda[aux]=NULL;
 }
 
 //----------------------------------------------------------------------------
-// Procesar Archivo.  Lee el archivo con el programa y carga todas las tablas
-// que se usan en la simulacion.
-// No hace ningun tipo de chequeo (de sintaxis o restricciones) del programa,
-// porque supone que el programa fue creado usando el software ACTSIP-E =>
-// se trabaja sobre el supuesto de programa correcto.
-int plc::procesar_archivo(FILE *archivo)
+// Copiar Programa.  Copia el programa cargado en la simulacion para mostrarlo
+// en formato ladder (ver mostprog.cpp).
+void plc::copiar_programa(void)
 {
-  char aux[120],cux[120];
-  int opcode,operando,bux;
-  unsigned nro;
-  ulong tiemp;
-  int resultado=OK;
+  plcsim_step paso;
   int pila[20],cabeza=0;
-  int direcc[20],cabezadir=0,dir;
+  int direcc[20],cabezadir=0,dir,bux;
+  unsigned nro;
 
-//----------------------------------------------------------------------------
-// CABECERA.
-  for (bux=0; bux<11; bux++)
+  nro_instruc=plcsim_step_count(sim);
+  for (nro=0; nro<nro_instruc; nro++)
   {
-    obtener_linea(aux,120,archivo); // se come las 11 primeras lineas
-    if (bux==8)
-     if (strcmp(aux,"PGM-START")==0) resetTotal();
-        else {
-               error("ERROR: Formato de archivo incorrecto",0);
-               return ERROR;
-             }
-  }
-//----------------------------------------------------------------------------
-// PGM-START .. PGM-END. Carga el arreglo de instrucciones.
-  nro=0;
-  obtener_linea(aux,15,archivo);
-  while (strcmp(aux,"PGM-END") != 0)
-  {
-    cortar(aux,0,4,cux);  // numero de instruccion
-//    printf(" %s ",cux);
-    if (aux[2] == '-')    // INSTRUCCION
+    plcsim_get_step(sim,nro,&paso);
+    if (!paso.is_function)    // INSTRUCCION
     {
-      instruc[nro].tipo=INSTRUCCION;
-      cortar(aux,0,2,cux);  // tipo de instruccion (opcode)
-      sscanf(cux,"%x",&opcode);
-      if (opcode>128)  // tipo de operando
+      instruc[nro].tipo=INSTRUCCION|(paso.timer ? OP_TIMER : OP_RELE);
+      /*
+        Modificado el 12/01/98.
+        Se agregan 4 opcodes para optimizar la impresion de codigo en formato
+        ladder.
+        Mientras se copia el programa se realiza el reemplazo, que puede
+        interpretarse como una traduccion de notacion postfija (notacion de pila),
+        a notacion prefija.
+        Ejemplos:
+
+          STR                              STR AND
+          .                                .
+          .             ===========>       .
+          .                                .
+          AND STR                          AND STR
+
+          ,
+
+          STR NOT                          STR NOT OR
+          .                                .
+          .             ===========>       .
+          .                                .
+          OR STR                           OR STR
+      */
+      if (paso.opcode==STR || paso.opcode==STR_NOT)  // marcado de opcodes a reemplazar
       {
-        opcode-=128;
-        instruc[nro].tipo|=OP_TIMER;
-      } else instruc[nro].tipo|=OP_RELE;
-/*
-  Desde aqui modificado el 12/01/98.
-  Se agregan 4 opcodes para optimizar la impresion de codigo en formato
-  ladder.
-  Mientras se lee el archivo de programa se realiza el reemplazo, que puede
-  interpretarse como una traduccion de notacion postfija (notacion de pila),
-  a notacion prefija.
-  Ejemplos:
-
-    STR                              STR AND
-    .                                .
-    .             ===========>       .
-    .                                .
-    AND STR                          AND STR
-
-    ,
-
-    STR NOT                          STR NOT OR
-    .                                .
-    .             ===========>       .
-    .                                .
-    OR STR                           OR STR
-*/
-      if (opcode==STR || opcode==STR_NOT)  // marcado de opcodes a reemplazar
-      {
-        push(pila,&cabeza,20,opcode);
+        push(pila,&cabeza,20,paso.opcode);
         push(direcc,&cabezadir,20,nro);
       } else
-      if (opcode==AND_STR || opcode==OR_STR) // reemplazo de opcodes
+      if (paso.opcode==AND_STR || paso.opcode==OR_STR) // reemplazo de opcodes
       {
         bux=pop(pila,&cabeza);
         dir=pop(direcc,&cabezadir);
-        if (bux==STR)
+        if (dir>=0)
         {
-          if (opcode==AND_STR) instruc[dir].opcode=STR_AND;
-            else instruc[dir].opcode=STR_OR;
-        } else //STR_NOT
+          if (bux==STR)
           {
-            if (opcode==AND_STR) instruc[dir].opcode=STR_NOT_AND;
-              else instruc[dir].opcode=STR_NOT_OR;
-          }
+            if (paso.opcode==AND_STR) instruc[dir].opcode=STR_AND;
+              else instruc[dir].opcode=STR_OR;
+          } else //STR_NOT
+            {
+              if (paso.opcode==AND_STR) instruc[dir].opcode=STR_NOT_AND;
+                else instruc[dir].opcode=STR_NOT_OR;
+            }
+        }
       }
-/*
-  Hasta aqui
-*/
-      instruc[nro].opcode=opcode;
-      cortar(aux,4,4,cux);  // operando (en hexadecimal)
-      sscanf(cux,"%x",&operando);
-      instruc[nro].operando=operando;
-/*      switch (opcode)
-      {
-	case 0x01 : printf ("org      %03d\n",operando); break;
-	case 0x41 : printf ("org not  %03d\n",operando); break;
-	case 0x02 : printf ("str      %03d\n",operando); break;
-	case 0x42 : printf ("str not  %03d\n",operando); break;
-	case 0x04 : printf ("and      %03d\n",operando); break;
-	case 0x44 : printf ("and not  %03d\n",operando); break;
-	case 0x20 : printf ("or       %03d\n",operando); break;
-	case 0x60 : printf ("or not   %03d\n",operando); break;
-	case 0x06 : printf ("and str\n"); break;
-	case 0x22 : printf ("or str\n"); break;
-	case 0x08 : printf ("out      %03d\n\n",operando); break;
-	case 0x48 : printf ("out not  %03d\n\n",operando); break;
-      }*/
+      instruc[nro].opcode=paso.opcode;
     } else           // FUNCION
       {
         instruc[nro].tipo=FUNCION;
-	cortar(aux,3,2,cux);  // nro. funcion (en decimal)
-	sscanf(cux,"%d",&opcode);
 // las funciones "con punto" (0. a 9.) se mapean en los nros. del 110 al 119.
-        cortar(aux,2,1,cux);  // es una funcion punto ? (tiene un 3 ?)
-        if (cux[0]=='3') opcode+=110;
-// para que cuando arranque sea necesario un reset antes de detecta un flanco
-        if (opcode==0 || opcode==1) instruc[nro].tipo|=TRABA;
-        instruc[nro].opcode=opcode;
-	cortar(aux,3,4,cux);  // operando (en hexadecimal)
-        sscanf(cux,"%x",&operando);
-        unsigned temp_operando = (unsigned)operando;
-        if (opcode>=110 && opcode<=119)
-          BIN_a_BCD(operando,&temp_operando);
-        instruc[nro].operando=operando;
-//        printf("Funcion   %02d\n\n",operando);
+        instruc[nro].opcode=paso.opcode+(paso.dot ? 110 : 0);
       }
-    obtener_linea(aux,15,archivo);
-//    getch();
-    nro++;
+    instruc[nro].operando=paso.operand;
   }
-  nro_instruc=nro;          // numero de instrucciones del programa
-//  printf(" %s...  Ok\n\n",aux);
-//----------------------------------------------------------------------------
-// IO-POINTERS-START .. IO-POINTERS-END, IO-DEF-START .. IO-DEF-END
-  for (bux=0; bux<17; bux++)
-  {
-    obtener_linea(aux,120,archivo); // se come 17 lineas
-//    if (bux==15) ;//printf(" %s\n",aux);
-  }
-//----------------------------------------------------------------------------
-// IO-START .. IO-END. Carga el arreglo de Input / Output.
-  obtener_linea(aux,47,archivo);
-  while (strcmp(aux,"IO-END") != 0)
-  {
-    cortar(aux,0,4,cux);  // numero de IO (en hexadecimal)
-    sscanf(cux,"%x",&nro);
-
-    cortar(aux,0,10,cux);  // nombre
-    strcpy(IO[nro].nombre,cux);
-
-    cortar(aux,0,30,cux);  // descripcion
-    if (nro<nroInputs || (nro>=160 && nro<160+nroOutputs))
-    {
-      int nroAyuda=nro-(nro<nroInputs?0:(160-nroInputs));
-      if (Ayuda[nroAyuda]==NULL)
-        if ((Ayuda[nroAyuda]=(char *)malloc(31))==NULL)
-          error("ERROR: No se pudo reservar memoria",1);
-      strcpy((char *)&(Ayuda[nroAyuda][0]),cux);
-    }
-//    printf ("%03d %s %s\n",nro,IO[nro].nombre,IO[nro].descrip);
-    obtener_linea(aux,47,archivo);
-//    getch();
-  }
-//  printf(" %s...  Ok\n\n",aux);
-//----------------------------------------------------------------------------
-// TC-START .. TC-END. Carga el arreglo de Timers / Counters.
-  obtener_linea(aux,51,archivo);
-//  printf(" %s\n",aux);
-  obtener_linea(aux,51,archivo);
-  obtener_linea(aux,51,archivo);
-  while (strcmp(aux,"TC-END") != 0)
-  {
-    cortar(aux,0,3,cux);  // numero de TC (en base 8, u OCTAL)
-    sscanf(cux,"%o",&nro);
-
-    cortar(aux,0,10,cux);  // nombre
-//    strcpy(TC[nro].nombre,cux);
-
-    cortar(aux,0,30,cux);  // descripcion
-//    strcpy(TC[nro].descrip,cux);
-
-    if (aux[6]=='5')
-    {
-      TC[nro].tipo='T';
-      cortar(aux,0,5,cux);
-    } else {
-             TC[nro].tipo='C';
-             cortar(aux,0,4,cux);
-           }
-    sscanf(cux,"%D",&tiemp);
-    TC[nro].valor=tiemp;
-//    printf ("%02d %s %s %c %D\n",nro,TC[nro].nombre,TC[nro].descrip,
-//            TC[nro].tipo,TC[nro].valor);
-    obtener_linea(aux,51,archivo);
-//    getch();
-  }
-//  printf(" %s...  Ok\n\n",aux);
-  return resultado;
 }
 
 int plc::cargar_programa(char *archivo)
 {
-   FILE *ar;
-   char mensaj[200]="ERROR: No se puede abrir ";
-   char mensaj2[200];
-   int resultado=ERROR;
+   char mensaj[73];
 
-//   printf("\n Abriendo %s ...",archivo);
-   if ((ar = fopen(archivo,"rt")) == NULL)
+   if (plcsim_load_program_file(sim,archivo)!=PLCSIM_OK)
    {
-     printf("ERROR del Sistema Operativo al abrir [%s]: %s\n", archivo, strerror(errno));
-     strcpy(&(mensaj[strlen(mensaj)]),archivo);
+     printf("ERROR al cargar [%s]: %s\n",archivo,plcsim_last_error(sim));
+     snprintf(mensaj,sizeof(mensaj),"ERROR: %s",plcsim_last_error(sim));
      error(mensaj,0);
-     return resultado;
+     return ERROR;
    }
-   if ((resultado=procesar_archivo(ar))!=ERROR)
-   {
-     strcpy(archivoPRG,archivo);
-     strcpy(nprog,archivo);
-     strcpy(mensaj2,archivo);
-     strcpy(&(mensaj2[strlen(mensaj2)])," cargado Ok");
-//     mensaje(mensaj2,LIGHTBLUE,BLUE,YELLOW);
-   }
-   fclose(ar);
-   return resultado;
+   resetTotal();
+   copiar_programa();
+   snprintf(archivoPRG,sizeof(archivoPRG),"%s",archivo);
+   snprintf(nprog,sizeof(nprog),"%s",archivo);
+   return OK;
 }
 
 //----------------------------------------------------------------------------
@@ -494,13 +289,13 @@ int obtener_token(char *s, int longitud, FILE *archivo)
      int car=fgetc(archivo);
 
 // se come los comentarios, newlines, blancos, Tabs y comas
-     while (car=='/' || car=='\n' || car==' ' || car=='\t' || car==',')
+     while (car=='/' || car=='\n' || car=='\r' || car==' ' || car=='\t' || car==',')
        if (car=='/')
        {
 	 car=fgetc(archivo);
 	 if (car=='/')
 	 {
-	   do car=fgetc(archivo); while (car!='\n');
+	   do car=fgetc(archivo); while (car!='\n' && car!=EOF);
 //	   if (aux==0) car=fgetc(archivo);
 	 } else
            if (car=='*')
@@ -508,15 +303,15 @@ int obtener_token(char *s, int longitud, FILE *archivo)
              do
              {
                do car=fgetc(archivo);
-               while (car!='*');
+               while (car!='*' && car!=EOF);
                car=fgetc(archivo);
-             } while (car!='/');
+             } while (car!='/' && car!=EOF);
              car=fgetc(archivo);
            }
        } else car=fgetc(archivo);
 // toma el token siguiente
-     while (aux<longitud && car!='/' && car!='\n' && car!=' ' && car!=EOF
-	    && car!='\t' && car!=',')
+     while (aux<longitud && car!='/' && car!='\n' && car!='\r' && car!=' '
+	    && car!=EOF && car!='\t' && car!=',')
      {
        s[aux++]=car;
        car=fgetc(archivo);
@@ -529,83 +324,20 @@ int obtener_token(char *s, int longitud, FILE *archivo)
      return res;
 }
 
+// Solo se leen los colores y los inputs bloqueados, que son propios de la
+// interfaz grafica. El resto del archivo lo interpreta la simulacion.
 int plc::procesar_archivo2(FILE *archivo)
 {
    char s[21];
-   int aux,cux,tok,c1,c2,c3,bloq;
-   ulong bux;
+   int aux,tok,c1,c2,c3,bloq;
    int resultado=OK;
-   int respuesta=0;
 
-   obtener_token(s,20,archivo);
-// Temporizadores
-   if (strcmp(s,"[temporizadores]")==0)
-   {
-     respuesta|=1;
-     while (((tok=obtener_token(s,20,archivo)) < 1) && (numtemporizadores < Maxtemporizadores))
-     {
-       sscanf(s,"%d",&aux);
-       aux=16*(aux/20)+(aux%20); // pasaje de representacion ext. a int.
-       obtener_token(s,20,archivo);
-       sscanf(s,"%U",&bux);
-       obtener_token(s,20,archivo);
-       sscanf(s,"%d",&cux);
-       cux=16*(cux/20)+(cux%20); // pasaje de representacion ext. a int.
-       cabext[numtemporizadores].output=aux;
-       cabext[numtemporizadores].tiempo=bux;
-       cabext[numtemporizadores].input=cux;
-       cabext[numtemporizadores].inicio=-1;
-       numtemporizadores++;
-     }
-   }
-
-// Selectoras
-   if (strcmp(s,"[selectoras]")==0)
-   {
-     respuesta|=2;
-     obtener_token(s,20,archivo);
-     while (strcmp(s,"inicio")==0)
-     {
-       cux=0;
-       while ((tok=obtener_token(s,20,archivo))!=2 && cux<Posselectoras)
-       {
-         sscanf(s,"%d",&aux);
-         aux=(16*(aux/20)+(aux%20)); // pasaje de representacion ext. a int.
-         selectoras[numselectoras].posic[cux++]=aux;
-         inputSelec[aux]=numselectoras;
-       }
-       selectoras[numselectoras].nro=cux;
-       if (strcmp(s,"fin")==0)
-       {
-         obtener_token(s,20,archivo);
-         numselectoras++;
-       } else resultado=ERROR;
-     }
-     prenderSelectoras();
-   }
-
-// Selectoras
-   if (strcmp(s,"[link]")==0)
-   {
-     respuesta|=4;
-     tok=obtener_token(s,20,archivo);
-     if (strcmp(s,"presente")==0)
-     {
-       conectado=1;
-       linkable->dibujar();
-     } else
-       if (strcmp(s,"ausente")==0)
-       {
-         conectado=0;
-         linkable->dibujar();
-       } else resultado=ERROR;
-     tok=obtener_token(s,20,archivo);
-   }
+   do tok=obtener_token(s,20,archivo);
+   while (strcmp(s,"[colores]")!=0 && tok!=1);
 
 // Colores
-   if (strcmp(s,"[colores]")==0 && resultado !=ERROR)
+   if (strcmp(s,"[colores]")==0)
    {
-     respuesta|=8;
      while ((tok=obtener_token(s,20,archivo))!=1)
      {
        sscanf(s,"%d",&aux);
@@ -644,54 +376,59 @@ int plc::procesar_archivo2(FILE *archivo)
            }
      }
    }
-   if (resultado==ERROR || respuesta==0) resultado=ERROR;
    return resultado;
 }
 
 int plc::cargar_cableado_externo(char *archivo)
 {
    FILE *ar;
-   char mensaj[200]="ERROR: No se puede abrir ";
-   char mensaj2[200];
+   char mensaj[73];
    int resultado=ERROR;
+   int linkado=plcsim_is_linked(sim);
 
-   strcpy(archivoCEX,archivo);
-//   printf("\n Abriendo %s ...",archivo);
-   if ((ar = fopen(archivo,"rt")) == NULL)
+   snprintf(archivoCEX,sizeof(archivoCEX),"%s",archivo);
+   if (plcsim_load_wiring_file(sim,archivo)!=PLCSIM_OK)
    {
-     strcpy(&(mensaj[strlen(mensaj)]),archivo);
+     printf("ERROR al cargar [%s]: %s\n",archivo,plcsim_last_error(sim));
+     snprintf(mensaj,sizeof(mensaj),"ERROR: %s",plcsim_last_error(sim));
      error(mensaj,0);
      return resultado;
    }
-   if ((resultado=procesar_archivo2(ar))!=ERROR)
+   if (plcsim_is_linked(sim)!=linkado) linkable->dibujar();
+   if ((ar = fopen(archivo,"rt")) == NULL)
    {
-     strcpy(mensaj2,archivo);
-     strcpy(&(mensaj2[strlen(mensaj2)])," cargado Ok");
-//     mensaje(mensaj2,LIGHTBLUE,BLUE,YELLOW);
-   } else
-     {
-       strcpy(mensaj,archivo);
-       strcpy(&(mensaj[strlen(mensaj)])," Formato de archivo incorrecto");
-       error(mensaj,0);
-       return resultado;
-     }
+     snprintf(mensaj,sizeof(mensaj),"ERROR: No se puede abrir %s",archivo);
+     error(mensaj,0);
+     return resultado;
+   }
+   resetColores();
+   resultado=procesar_archivo2(ar);
    fclose(ar);
    return resultado;
 }
 
 //----------------------------------------------------------------------------
-// Reles especiales
-void plc::especiales(void)
+// Simulacion. Un ciclo del programa y/o del cableado externo, segun los
+// botones del menu.
+void plc::simular(void)
 {
-  ulong s=tiempo(),t=s-tick;
+  unsigned partes=0;
 
-  IOsimul[834].actual=!IOsimul[834].actual?ON:0;   // 962: oscilante c/scan time
-  if (t>50)
-  {
-    IOsimul[836].actual=!IOsimul[836].actual?ON:0; // 964: oscilante cada 50 cent.
-    tick=s;
-  }
-  IOsimul[862].actual=ON;                      // 990: siempre prendido
+  if (botProg.apret) partes|=PLCSIM_RUN_PROGRAM;
+  if (botCabext.apret) partes|=PLCSIM_RUN_WIRING;  // cableado externo
+  if (partes && (plcsim_run(sim,partes) & PLCSIM_WARN_MC_NESTING))
+    error("ERROR: Anidamiento de Master Control superior a 3",0);
+}
+
+unsigned char plc::valor(unsigned nro) const
+{
+  int v=plcsim_get_byte(sim,nro);
+  return (v<0) ? 0 : v;
+}
+
+void plc::alternar(int nro)
+{
+  plcsim_set(sim,nro,valor(nro)==0);
 }
 
 //----------------------------------------------------------------------------
@@ -739,8 +476,7 @@ int plc::evento(eventoM *ev)
 {
    int comando,comando2,destino,comando3;
 
-   if (botProg.apret) simular();
-   if (botCabext.apret) simularcabext();  // cableado externo
+   simular();
 
    if (modo==ver_plc)
    {
@@ -749,9 +485,11 @@ int plc::evento(eventoM *ev)
      destino=calcular_destino(ev->xm,ev->ym);
      if (destino!=-1)
      {
-       if (destino!=ayudaActual && Ayuda[destino]!=NULL)
+       if (destino!=ayudaActual)
        {
-         disAyuda.settexto((char *)&(Ayuda[destino][0]));
+         unsigned nro=(destino<nroInputs) ? destino : destino-nroInputs+160;
+         snprintf(ayuda,sizeof(ayuda),"%s",plcsim_io_comment(sim,nro));
+         disAyuda.settexto(ayuda);
          disAyuda.dibujar();
          ayudaActual=destino;
        }
@@ -763,24 +501,24 @@ int plc::evento(eventoM *ev)
      }
      if (destino!=-1 && inputBloq[destino]==0)
      {
-       if (inputSelec[destino]==-1)
+       if (!plcsim_is_selector(sim,destino))
        {
          if (picmo!=&iconoMano) cambiarIconoMouse(&iconoMano);
          if (((ev->bizq || ev->bder) && (destino!=botres || precond2==0)) || ev->prei || ev->pred)
          {
            if (ev->bder)
            {
-             if (precond2==2) IOsimul[botres].actual=!IOsimul[botres].actual?ON:0;
+             if (precond2==2) alternar(botres);
              precond2=2;
            } else precond2=1;
            mostrar_uno(botres,0);
-           IOsimul[destino].actual=!IOsimul[destino].actual?ON:0;
+           alternar(destino);
            mostrar_uno(destino,1);
            botres=destino;
          } else
          if (ev->sold && precond2!=0)
          {
-           IOsimul[botres].actual=!IOsimul[botres].actual?ON:0;
+           alternar(botres);
            mostrar_uno(botres,1);
            precond2=0;
          } else
@@ -800,46 +538,27 @@ int plc::evento(eventoM *ev)
        } else
          {
            if (picmo!=&iconoSelec) cambiarIconoMouse(&iconoSelec);
-           int sel=inputSelec[destino];    // numero de selectora a la que
-                                           // pertenece  el boton 'destino'.
-           int sel2=selectoras[sel].actual;  // numero de boton de la selectora
-                                             // que actualmente esta apretado.
+// La simulacion apaga las otras posiciones de la selectora al prender una,
+// y actualizar_grafica las redibuja.
            if (botres!=destino)
            {
-             if (ev->bizq)
-             {
-               if (inputSelec[botres]==sel) IOsimul[botres].actual=0;
-               IOsimul[destino].actual=ON; //IOsimul[destino].anterior=ON;
-               if (destino!=sel2)
-               {
-                 IOsimul[sel2].actual=0; //IOsimul[sel2].anterior=0;
-                 mostrar_uno(sel2,0);
-                 selectoras[sel].actual=destino;
-               }
-             }
+             if (ev->bizq) plcsim_set(sim,destino,1);
              mostrar_uno(botres,0);
              mostrar_uno(destino,1);
            } else
-             if (ev->prei) //&& IOsimul[destino].actual!=ON)
+             if (ev->prei)
              {
-               if (sel2!=destino)
-               {
-                 IOsimul[sel2].actual=0;
-                 mostrar_uno(sel2,0);
-                 selectoras[sel].actual=destino;
-               }
-  //             IOsimul[destino].actual=ON;
-               IOsimul[destino].actual=(IOsimul[destino].actual==0) ? ON : 0;
+               alternar(destino);
                mostrar_uno(destino,1);
              }
            botres=destino;
          }
      } else
        {
-         if (inputBloq[destino]!=0 && picmo!=&iconoProhibido) cambiarIconoMouse(&iconoProhibido);
+         if (destino!=-1 && inputBloq[destino]!=0 && picmo!=&iconoProhibido) cambiarIconoMouse(&iconoProhibido);
          if (precond2 == 2)
          {
-           IOsimul[botres].actual=!IOsimul[botres].actual?ON:0;
+           alternar(botres);
            mostrar_uno(botres,1);
          }
          comando=Botoner.evento(ev);

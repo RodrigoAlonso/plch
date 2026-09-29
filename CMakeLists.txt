@@ -4,6 +4,13 @@ project(PlcHitachiWinNative
     VERSION 0.1
     DESCRIPTION "PLC Hitachi Native Windows Application")
 
+option(PLCH_BUILD_GUI "Build the SDL_bgi simulator (plc)" ON)
+
+# Simulation engine as a standalone library (see libplcsim/)
+enable_testing()
+add_subdirectory(libplcsim)
+
+if(PLCH_BUILD_GUI)
 # 1. Locate the native MSYS2 SDL2 configurations
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -14,7 +21,6 @@ set(PROJECT_SOURCES
     src/plc.cpp
     src/interfaz.cpp
     src/mostprog.cpp
-    src/simular.cpp
     src/soporte.cpp
     src/ventanas.cpp
 )
@@ -39,9 +45,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # 6. Link libraries in the strict required hierarchy order
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    plcsim::plcsim
     SDL2_bgi
     ${SDL2_LIBRARIES}
 )
 
 # 7. Set compilation engine properties to modern standard rules
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+endif()

@@ -409,8 +409,7 @@ void plc::mostrar_programa(eventoM *ev)
 //  rg.ini_visor(this);
   do
   {
-    if (botProg.apret) simular();
-    if (botCabext.apret) simularcabext();  // cableado externo
+    simular();
 
     scanEvento(ev);
     if (ev->tecla)
@@ -475,7 +474,7 @@ void visor::dibujar(void)
         u=b*64;
         v=(a-primfil)*32;
 //        caja3d(u,v,64,32,colorFondo,colorFondo,colorFondo);
-        operando=p->IOsimul[tabla_final[a][b].memoria].actual;
+        operando=p->valor(tabla_final[a][b].memoria);
 #ifdef DEBUG
 //        setcolor(LIGHTGRAY);
 //        rectangle(u,v,u+64,v+32);

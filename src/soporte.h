@@ -25,17 +25,10 @@
 
 #include <stdio.h>
 
-unsigned long tiempo(void);
+// (La simulacion, con su aritmetica BCD y el manejo del tiempo, esta en la
+//  biblioteca plcsim.)
 int push(int *pila, int *cabeza, int tope, int valor);
 int pop(int *pila, int *cabeza);
-int popush(int *pila, int *cabeza);
-int sumarBCD(unsigned int *bcd1, unsigned int bcd2);
-int restarBCD(unsigned int *bcd1, unsigned int bcd2);
-
-int obtener_linea(char *s, int longitud, FILE *archivo);
-int cortar(char *strorigen, int pos, int num, char *strdest);
-int BIN_a_BCD(unsigned int numBIN, unsigned int *numBCD);
-int BCD_a_BIN(unsigned int *numBIN, unsigned int numBCD);
 unsigned long chk(char *codigo, char *copyright);
 
 #endif // _SOPORTE_H__

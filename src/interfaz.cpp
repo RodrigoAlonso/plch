@@ -30,8 +30,9 @@ void plc::dibujar(int forzar)
 
 void plc::mostrar_uno(int nro, int recuadro)
 {
-   char s[40],bux;
+   char s[40],bux,nombre[11];
    int aux,cux,dux,color1,color2,color3,color4,color5,hundido,bias=0,bias2=0;
+   unsigned char estado=valor(nro);
 
    if (nro>=160)             // Outputs
    {
@@ -43,7 +44,8 @@ void plc::mostrar_uno(int nro, int recuadro)
 
    if (nro>=160)                // Outputs
    {
-    if (IOsimul[nro].actual==0)
+    output[aux]=estado;
+    if (estado==0)
     {
       color1=colorSombra;
       color2=colorLuz;
@@ -73,7 +75,8 @@ void plc::mostrar_uno(int nro, int recuadro)
     dux-=alto;
    } else                       // Inputs
      {
-       if ((IOsimul[nro].actual&ON)!=ON)
+       input[nro]=estado;
+       if ((estado&ON)!=ON)
        {
          color1=colorIn[nro].cluz;
          color2=colorSombra;
@@ -105,15 +108,16 @@ void plc::mostrar_uno(int nro, int recuadro)
      }
 
    setcolor(color4);
-   bux=IO[nro].nombre[5];
-   IO[nro].nombre[5]='\0';
+   snprintf(nombre,sizeof(nombre),"%-10s",plcsim_io_name(sim,nro));
+   bux=nombre[5];
+   nombre[5]='\0';
    outtextxy(cux+hundido+slackX+slackX,     // 1 linea de texto
              dux+alto*1+hundido+slackY*2,
-             IO[nro].nombre);
-   IO[nro].nombre[5]=bux;
+             nombre);
+   nombre[5]=bux;
    outtextxy(cux+hundido+slackX+slackX,     // 2 linea de texto
              dux+alto*2+hundido+slackY*2,
-             &(IO[nro].nombre[5]));
+             &(nombre[5]));
    sprintf(s,"%02d",nro+(nro/16)*4);  // pasaje de representacion int. a ext.
    setcolor(color5);
    outtextxy(cux+hundido+slackX+slackX+bias2,    // numero del input/output
@@ -143,20 +147,23 @@ void plc::mostrar_grafica(int x, int y, int forzar)
   }
   for (aux=0; aux<nroOutputs; aux++)
   {
-    output[aux]=IOsimul[aux+160].actual;
     mostrar_uno(aux+160,0);
   }
 }
 
+// Redibuja los inputs y outputs que cambio la simulacion.
 void plc::actualizar_grafica(void)
 {
   int aux;
 
+  for (aux=0; aux<nroInputs; aux++)
+  {
+    if (valor(aux) != input[aux]) mostrar_uno(aux,aux==botres);
+  }
   for (aux=0; aux<nroOutputs; aux++)
   {
-    if (IOsimul[aux+160].actual != output[aux])
+    if (valor(aux+160) != output[aux])
     {
-      output[aux]=IOsimul[aux+160].actual;
       if (botSonido.apret) sound(200);
       mostrar_uno(aux+160,0);
     }

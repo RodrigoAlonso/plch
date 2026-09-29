@@ -51,6 +51,46 @@ If you need to wipe out the build artifacts and start fresh, run the cleanup scr
 
 ---
 
+## Simulation Library (`libplcsim`)
+
+The simulation engine (scan cycle, instruction set, timers, counters, special relays, external wiring and PLC link) lives in a standalone library, [`libplcsim/`](libplcsim), which the graphical simulator is built on. It has no dependency on SDL, BGI or the rest of this codebase: programs only need the public C header [`plcsim.h`](libplcsim/include/plcsim.h), which documents the full API.
+
+```c
+#include <plcsim.h>
+
+plcsim_t *plc = plcsim_create();
+if (plcsim_load_program_file(plc, "kitt.epg") != PLCSIM_OK)
+    fprintf(stderr, "%s\n", plcsim_last_error(plc));
+plcsim_set(plc, plcsim_find_io(plc, "KITT"), 1);
+for (;;) {
+    plcsim_scan(plc);
+    int lamp = plcsim_get(plc, PLCSIM_OUTPUT(16));
+    /* ... */
+}
+plcsim_destroy(plc);
+```
+
+`plcsim_dump()` prints a program's instruction list and its ladder diagram as text. The `plcsim_dump` example does it from the command line:
+```bash
+libplcsim/target/plcsim_dump resources/kitt.epg          # ladder diagram (same as -l, --ladder)
+libplcsim/target/plcsim_dump -i resources/kitt.epg       # instruction list (--ilist)
+libplcsim/target/plcsim_dump -i -l resources/kitt.epg    # both
+```
+
+Build, test and install it on its own (shared by default, `-DBUILD_SHARED_LIBS=OFF` for static):
+```bash
+cmake -S libplcsim -B libplcsim/target -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake --build libplcsim/target
+ctest --test-dir libplcsim/target
+cmake --install libplcsim/target
+```
+
+Then link against it with CMake (`find_package(plcsim)` + `target_link_libraries(app PRIVATE plcsim::plcsim)`) or with pkg-config (`pkg-config --cflags --libs plcsim`). The static library does not need the C++ runtime, so it links into plain C programs.
+
+The top-level build also compiles the library; use `-DPLCH_BUILD_GUI=OFF` to skip the SDL simulator, and `-DPLCSIM_BUILD_TESTS=ON` to include the tests.
+
+---
+
 ## Historical Context
 
 In the 1990s, BGI was the standard graphics library for Borland Turbo C++ and Borland C++. It relied heavily on 16-bit DOS real-mode interrupts (like `int 10h`) and segmented memory architectures. 
